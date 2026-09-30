@@ -1,10 +1,9 @@
-// Plaatst alle posts uit posts.json waarvan publish_at verstreken is en status "gepland" is.
+// Plaatst alle posts uit Supabase (tabel ig_posts) waarvan publish_at verstreken is en status "gepland" is.
 //
 //   node scripts/publish.mjs            -> echt publiceren
-//   node scripts/publish.mjs --dry-run  -> alleen controleren (posts.json + bereikbaarheid afbeeldingen)
-import { API_VERSION, STATUS, igRequest, readPosts, requireEnv, sleep, validatePosts, writePosts } from './lib.mjs';
+//   node scripts/publish.mjs --dry-run  -> alleen controleren (verbinding + bereikbaarheid afbeeldingen)
+import { API_VERSION, igRequest, requireEnv, sbRequest, sleep } from './lib.mjs';
 
-const POSTS_FILE = process.env.POSTS_FILE || 'posts.json';
 const DRY_RUN = process.argv.includes('--dry-run');
 const STATUS_POLL_ATTEMPTS = 20;
 const STATUS_POLL_INTERVAL_MS = 3000;
@@ -53,22 +52,25 @@ async function publishPost(post, { token, userId }) {
   return published.id;
 }
 
-async function main() {
-  const posts = await readPosts(POSTS_FILE);
-  const errors = validatePosts(posts);
-  if (errors.length) {
-    errors.forEach(logError);
-    throw new Error(`${POSTS_FILE} bevat ${errors.length} fout(en); er is niets geplaatst.`);
-  }
+/** Zet de post op "bezig", maar alleen als hij nog "gepland" is. Voorkomt dubbel plaatsen. */
+async function claim(post) {
+  const rows = await sbRequest('PATCH', `ig_posts?id=eq.${post.id}&status=eq.gepland`, {
+    body: { status: 'bezig' },
+    prefer: 'return=representation',
+  });
+  return rows.length === 1;
+}
 
-  const now = Date.now();
-  const due = posts.filter((p) => p.status === STATUS.GEPLAND && Date.parse(p.publish_at) <= now);
-  const upcoming = posts.filter((p) => p.status === STATUS.GEPLAND && Date.parse(p.publish_at) > now);
-  log(`API-versie ${API_VERSION}. ${due.length} post(s) klaar om te plaatsen, ${upcoming.length} nog gepland.`);
+const update = (id, fields) => sbRequest('PATCH', `ig_posts?id=eq.${id}`, { body: fields });
+
+async function main() {
+  const planned = await sbRequest('GET', 'ig_posts?status=eq.gepland&order=publish_at.asc&select=*');
+  const due = planned.filter((p) => Date.parse(p.publish_at) <= Date.now());
+  log(`API-versie ${API_VERSION}. ${due.length} post(s) klaar om te plaatsen, ${planned.length - due.length} nog gepland.`);
 
   if (DRY_RUN) {
     let bad = 0;
-    for (const p of posts.filter((x) => x.status === STATUS.GEPLAND)) {
+    for (const p of planned) {
       try {
         await checkImage(p.image_url);
         log(`OK  ${p.id} (${p.publish_at})`);
@@ -89,23 +91,25 @@ async function main() {
   let failures = 0;
 
   for (const post of due) {
+    if (!(await claim(post))) {
+      log(`Overgeslagen: ${post.id} is intussen aangepast of al opgepakt.`);
+      continue;
+    }
     log(`Plaatsen: ${post.id} (gepland voor ${post.publish_at})`);
     try {
       const mediaId = await publishPost(post, { token, userId });
-      post.status = STATUS.GEPLAATST;
-      post.instagram_media_id = mediaId;
-      post.geplaatst_op = new Date().toISOString();
-      delete post.fout;
+      await update(post.id, {
+        status: 'geplaatst',
+        instagram_media_id: mediaId,
+        geplaatst_op: new Date().toISOString(),
+        fout: null,
+      });
       log(`  geplaatst, media-ID ${mediaId}`);
     } catch (err) {
       failures++;
-      post.status = STATUS.MISLUKT;
-      post.fout = err.message;
-      post.mislukt_op = new Date().toISOString();
       logError(`${post.id}: ${err.message}`);
+      await update(post.id, { status: 'mislukt', fout: err.message, mislukt_op: new Date().toISOString() });
     }
-    // Na elke post opslaan, zodat een crash halverwege geen dubbele posts oplevert.
-    await writePosts(POSTS_FILE, posts);
   }
 
   if (failures) {

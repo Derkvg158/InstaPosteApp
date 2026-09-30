@@ -3,6 +3,7 @@ name: Instagram - posts plaatsen
 on:
   schedule:
     # Elk half uur (UTC; GitHub kan een paar minuten vertraagd zijn).
+    # Houdt ook het gratis Supabase-project actief.
     - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
@@ -12,9 +13,9 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
-# Nooit twee runs tegelijk, anders kan een post dubbel geplaatst worden.
+# Nooit twee runs tegelijk.
 concurrency:
   group: instagram-publish
   cancel-in-progress: false
@@ -34,28 +35,12 @@ jobs:
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          SUPABASE_URL: https://kcbjlmgbahpletdieyah.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             node scripts/publish.mjs --dry-run
           else
             node scripts/publish.mjs
           fi
-
-      - name: posts.json terug committen
-        # Ook als een post mislukt is, zodat de status "mislukt" wordt opgeslagen.
-        if: always()
-        run: |
-          if git diff --quiet -- posts.json; then
-            echo "Geen wijzigingen in posts.json."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add posts.json
-          git commit -m "Instagram: status posts bijgewerkt"
-          for i in 1 2 3; do
-            git pull --rebase && git push && exit 0
-            sleep 5
-          done
-          echo "::error::Kon posts.json niet pushen. Controleer handmatig of de posts geplaatst zijn, anders worden ze bij de volgende run opnieuw geplaatst."
-          exit 1

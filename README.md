@@ -1,18 +1,19 @@
 # Instagram-posttool voor Je Grote Dag
 
-Plaatst geplande posts uit `posts.json` automatisch op **@je_grote_dag** via de Instagram API (Instagram Login, `graph.instagram.com`).
+Plan posts voor **@je_grote_dag** via een eenvoudige pagina (telefoon en laptop). Een GitHub Action plaatst ze op het geplande moment via de Instagram API.
 
-## Bestanden
+```
+Planner-pagina  ──►  Supabase (posts + foto's)  ◄──  GitHub Action (elk half uur)  ──►  Instagram
+```
 
-| Bestand | Wat |
+## Onderdelen
+
+| Onderdeel | Waar |
 |---|---|
-| `posts.json` | Contentkalender |
-| `scripts/publish.mjs` | Plaatst posts waarvan de tijd verstreken is |
-| `scripts/refresh-token.mjs` | Ververst het long-lived token |
-| `.github/workflows/instagram-publish.yml` | Draait elk half uur (en handmatig) |
-| `.github/workflows/instagram-refresh-token.yml` | Draait elke maandag |
-
-Geen npm-pakketten nodig; alleen Node 20 of nieuwer.
+| Planner-pagina | `planner/index.html`, gehost op Netlify |
+| Database + foto's + inloggen | Supabase-project `jegrotedag-instagram` (tabel `ig_posts`, fotomap `ig-images`) |
+| Plaatsen | `scripts/publish.mjs` + `.github/workflows/instagram-publish.yml` |
+| Token verversen | `scripts/refresh-token.mjs` + `.github/workflows/instagram-refresh-token.yml` (elke maandag) |
 
 ## GitHub-secrets
 
@@ -20,27 +21,22 @@ Geen npm-pakketten nodig; alleen Node 20 of nieuwer.
 |---|---|
 | `IG_ACCESS_TOKEN` | Long-lived Instagram-token |
 | `IG_USER_ID` | Instagram-gebruikers-ID van @je_grote_dag |
-| `GH_SECRETS_PAT` | Fine-grained PAT, alleen voor deze repo, met recht **Secrets: Read and write** |
+| `SUPABASE_SECRET_KEY` | Supabase → Project Settings → API Keys → **Secret key** (`sb_secret_…`) |
+| `GH_SECRETS_PAT` | Fine-grained PAT, alleen voor deze repo, met **Secrets: Read and write** |
 
-Optioneel: variabele `IG_API_VERSION` (standaard `v26.0`).
+## Iemand toegang geven tot de planner
 
-## Een post inplannen
+1. Supabase → **Authentication → Users → Add user → Create new user**: e-mail + wachtwoord, vink *Auto Confirm User* aan.
+2. Supabase → **Table Editor → ig_editors → Insert row**: hetzelfde e-mailadres, in kleine letters.
 
-1. Zet de JPEG op Netlify, bijvoorbeeld `ig/2026-10-05-trouwlocatie.jpg`, en controleer dat de URL werkt.
-2. Voeg een post toe aan `posts.json` met `status: "gepland"`.
-   - `publish_at` in Nederlandse tijd **met offset**: `+02:00` in de zomertijd, `+01:00` in de wintertijd. Het script controleert of de offset bij de datum past.
-3. Commit en push. De eerstvolgende run na `publish_at` plaatst de post.
+Alleen adressen in `ig_editors` kunnen posts zien of inplannen. Zet ook **Authentication → Sign In / Providers → Allow new users to sign up** uit.
 
-Na plaatsing krijgt de post `status: "geplaatst"`, `instagram_media_id` en `geplaatst_op`. Bij een fout wordt dat `status: "mislukt"` met `fout` en `mislukt_op`, de workflow faalt en GitHub stuurt je een e-mail. Wil je een mislukte post opnieuw proberen, zet de status dan terug op `gepland`.
+## Statussen
+
+`gepland` → `bezig` → `geplaatst`, of `mislukt` (met reden). Een mislukte post kan in de planner opnieuw worden ingepland. Bij een mislukte post faalt de workflow en stuurt GitHub een e-mail.
+
+Blijft een post op `bezig` staan, dan is de workflow halverwege gestopt. Controleer dan op Instagram of hij toch geplaatst is, voordat je hem opnieuw inplant.
 
 ## Testen
 
-- **Actions → Instagram - posts plaatsen → Run workflow**, met "Alleen controleren" aangevinkt. Dit controleert `posts.json` en of alle afbeeldingen bereikbaar zijn, zonder iets te plaatsen.
-- Lokaal: `npm run check`.
-- Voor een echte test: zet een post met een tijd in het verleden en start de workflow met het vinkje uit.
-
-## Let op
-
-- De controles zijn strikt: een fout in `posts.json` (bijv. een verkeerde offset of een dubbel id) blokkeert **alle** posts, zodat er niets half geplaatst wordt.
-- GitHub zet geplande workflows uit als er 60 dagen geen activiteit in de repo is. Wordt een workflow uitgeschakeld, zet hem dan weer aan onder Actions.
-- Een post die te laat is (bijvoorbeeld omdat de workflow uitstond) wordt alsnog geplaatst bij de eerstvolgende run.
+**Actions → Instagram - posts plaatsen → Run workflow** met "Alleen controleren" aangevinkt: controleert de verbinding met Supabase en of de foto's bereikbaar zijn, zonder iets te plaatsen.
