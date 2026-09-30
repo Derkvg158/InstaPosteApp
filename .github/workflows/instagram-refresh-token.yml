@@ -1,0 +1,36 @@
+name: Instagram - token verversen
+
+on:
+  schedule:
+    # Elke maandag 06:17 UTC. Het token is 60 dagen geldig, wekelijks verversen geeft ruim marge.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Token verversen
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          NEW_TOKEN_FILE: ${{ runner.temp }}/ig_token
+        run: node scripts/refresh-token.mjs
+
+      - name: Nieuw token opslaan als secret
+        env:
+          # Fine-grained PAT met toegang tot deze repo en "Secrets: Read and write".
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+        run: |
+          gh secret set IG_ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/ig_token"
+          rm -f "$RUNNER_TEMP/ig_token"
+          echo "IG_ACCESS_TOKEN bijgewerkt."
