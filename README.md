@@ -40,3 +40,19 @@ Blijft een post op `bezig` staan, dan is de workflow halverwege gestopt. Control
 ## Testen
 
 **Actions → Instagram - posts plaatsen → Run workflow** met "Alleen controleren" aangevinkt: controleert de verbinding met Supabase en of de foto's bereikbaar zijn, zonder iets te plaatsen.
+
+## Een batch posts in één keer klaarzetten (bijv. door Claude)
+
+```bash
+npm install
+node scripts/inplannen.mjs ../mijn-batch          # controleren
+node scripts/inplannen.mjs ../mijn-batch --echt   # inplannen
+```
+
+De map bevat de foto's en `planning.json`:
+
+```json
+[{ "foto": "locatie.jpg", "datum": "2026-10-05", "tijd": "19:00", "tekst": "Caption #trouwen" }]
+```
+
+Foto's worden automatisch omgezet naar JPEG in Instagram-formaat. Vereist een `.env` met `SUPABASE_URL=https://kcbjlmgbahpletdieyah.supabase.co` en `SUPABASE_SECRET_KEY=sb_secret_…`.
